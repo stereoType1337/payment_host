@@ -118,7 +118,7 @@ async def get_upcoming_payments(days_ahead: int = 14) -> list[dict]:
         SELECT p.*, s.hoster, s.server_name, s.monthly_cost, s.currency, s.payment_type
         FROM payments p
         JOIN servers s ON s.id = p.server_id
-        WHERE p.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + $1
+        WHERE p.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + $1::integer
           AND p.status = 'pending'
           AND s.is_active = TRUE
         ORDER BY p.due_date
