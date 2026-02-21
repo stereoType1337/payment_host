@@ -14,11 +14,13 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-botuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-botpass}
       POSTGRES_DB: ${POSTGRES_DB:-server_payments}
+    expose:
+      - "5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser} -d ${POSTGRES_DB:-server_payments}"]
       interval: 5s
       timeout: 3s
       retries: 5
