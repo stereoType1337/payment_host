@@ -27,13 +27,54 @@ class AddServer(StatesGroup):
     currency = State()
 
 
-# ── /add ─────────────────────────────────────────────────
+# ── Commands (registered FIRST so they aren't eaten by FSM) ──
+
+@router.message(Command("cancel"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    current = await state.get_state()
+    if current is None:
+        await message.answer("Нечего отменять.")
+        return
+    await state.clear()
+    await message.answer("Действие отменено.")
+
 
 @router.message(Command("add"))
 async def cmd_add(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(AddServer.hoster)
-    await message.answer("Введите название хостера (например, Hetzner):")
+    await message.answer("Введите название хостера (например, Hetzner):\n\n/cancel — отменить")
 
+
+@router.message(Command("list"))
+async def cmd_list(message: Message, state: FSMContext):
+    await state.clear()
+    servers = await models.list_servers()
+    if not servers:
+        await message.answer("Список серверов пуст. Добавьте сервер командой /add")
+        return
+    await message.answer("Ваши серверы:", reply_markup=server_list_kb(servers))
+
+
+@router.message(Command("upcoming"))
+async def cmd_upcoming(message: Message, state: FSMContext):
+    await state.clear()
+    payments = await models.get_upcoming_payments(14)
+    if not payments:
+        await message.answer("Нет предстоящих оплат в ближайшие 14 дней.")
+        return
+    lines = []
+    for p in payments:
+        cost_str = _format_cost(p["monthly_cost"], p["currency"]) if p["monthly_cost"] else "—"
+        ptype_label = "Инвойс" if p["payment_type"] == "invoice" else "Авто"
+        lines.append(
+            f"• {p['due_date'].strftime('%d.%m.%Y')} — {p['hoster']} / {p['server_name']}\n"
+            f"  {cost_str} | {ptype_label} | {p['status']}"
+        )
+    await message.answer("Ближайшие оплаты (14 дней):\n\n" + "\n\n".join(lines))
+
+
+# ── FSM steps (registered AFTER commands) ────────────────
 
 @router.message(AddServer.hoster)
 async def fsm_hoster(message: Message, state: FSMContext):
@@ -117,36 +158,6 @@ async def fsm_currency(callback: CallbackQuery, state: FSMContext):
     )
     await callback.answer()
     await state.clear()
-
-
-# ── /list ────────────────────────────────────────────────
-
-@router.message(Command("list"))
-async def cmd_list(message: Message):
-    servers = await models.list_servers()
-    if not servers:
-        await message.answer("Список серверов пуст. Добавьте сервер командой /add")
-        return
-    await message.answer("Ваши серверы:", reply_markup=server_list_kb(servers))
-
-
-# ── /upcoming ────────────────────────────────────────────
-
-@router.message(Command("upcoming"))
-async def cmd_upcoming(message: Message):
-    payments = await models.get_upcoming_payments(14)
-    if not payments:
-        await message.answer("Нет предстоящих оплат в ближайшие 14 дней.")
-        return
-    lines = []
-    for p in payments:
-        cost_str = _format_cost(p["monthly_cost"], p["currency"]) if p["monthly_cost"] else "—"
-        ptype_label = "Инвойс" if p["payment_type"] == "invoice" else "Авто"
-        lines.append(
-            f"• {p['due_date'].strftime('%d.%m.%Y')} — {p['hoster']} / {p['server_name']}\n"
-            f"  {cost_str} | {ptype_label} | {p['status']}"
-        )
-    await message.answer("Ближайшие оплаты (14 дней):\n\n" + "\n\n".join(lines))
 
 
 # ── Helpers ──────────────────────────────────────────────
