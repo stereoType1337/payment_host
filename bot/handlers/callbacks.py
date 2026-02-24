@@ -30,18 +30,57 @@ def _format_cost(amount, currency: str, count: int = 1) -> str:
     return unit
 
 
-# ── Hoster list ───────────────────────────────────────────
+# ── Pagination: no-op (page indicator button) ────────────
+
+@router.callback_query(F.data == "noop")
+async def cb_noop(callback: CallbackQuery):
+    await callback.answer()
+
+
+# ── Pagination: hoster list ───────────────────────────────
+
+@router.callback_query(F.data.startswith("hlist_p:"))
+async def cb_hoster_list_page(callback: CallbackQuery):
+    page = int(callback.data[8:])
+    hosters = await models.list_hosters()
+    await callback.message.edit_text(
+        "Ваши хостеры:",
+        reply_markup=hoster_list_kb(hosters, page=page),
+    )
+    await callback.answer()
+
+
+# ── Pagination: servers within hoster ────────────────────
+# IMPORTANT: must be registered BEFORE the plain "hstr:" handler
+
+@router.callback_query(F.data.startswith("hstr_p:"))
+async def cb_hoster_page(callback: CallbackQuery):
+    # format: hstr_p:{page}:{hoster_name}
+    rest = callback.data[7:]          # e.g. "1:hostealo"
+    colon = rest.index(":")
+    page = int(rest[:colon])
+    hoster = rest[colon + 1:]
+
+    servers = await models.list_servers_by_hoster(hoster)
+    await callback.message.edit_text(
+        f"Серверы хостера {hoster}:",
+        reply_markup=hoster_servers_kb(servers, page=page),
+    )
+    await callback.answer()
+
+
+# ── Hoster: show servers (page 0) ────────────────────────
 
 @router.callback_query(F.data.startswith("hstr:"))
 async def cb_hoster_servers(callback: CallbackQuery):
-    hoster = callback.data[5:]  # everything after "hstr:"
+    hoster = callback.data[5:]
     servers = await models.list_servers_by_hoster(hoster)
     if not servers:
         await callback.answer("Нет серверов у этого хостера", show_alert=True)
         return
     await callback.message.edit_text(
         f"Серверы хостера {hoster}:",
-        reply_markup=hoster_servers_kb(servers),
+        reply_markup=hoster_servers_kb(servers, page=0),
     )
     await callback.answer()
 
@@ -99,13 +138,12 @@ async def cb_server_delete(callback: CallbackQuery):
     else:
         await callback.answer("Сервер не найден", show_alert=True)
 
-    # Try to return to the hoster's server list; fall back to hosters list
     if hoster:
         servers = await models.list_servers_by_hoster(hoster)
         if servers:
             await callback.message.edit_text(
                 f"Серверы хостера {hoster}:",
-                reply_markup=hoster_servers_kb(servers),
+                reply_markup=hoster_servers_kb(servers, page=0),
             )
             return
 
@@ -138,11 +176,10 @@ async def cb_back_hoster(callback: CallbackQuery):
         if servers:
             await callback.message.edit_text(
                 f"Серверы хостера {hoster}:",
-                reply_markup=hoster_servers_kb(servers),
+                reply_markup=hoster_servers_kb(servers, page=0),
             )
             await callback.answer()
             return
-    # Fall back to hosters list
     hosters = await models.list_hosters()
     if hosters:
         await callback.message.edit_text("Ваши хостеры:", reply_markup=hoster_list_kb(hosters))
