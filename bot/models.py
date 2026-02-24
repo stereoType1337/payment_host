@@ -12,15 +12,16 @@ async def add_server(
     payment_type: str,
     monthly_cost: Decimal | None,
     currency: str,
+    count: int = 1,
 ) -> dict:
     pool = get_pool()
     row = await pool.fetchrow(
         """
-        INSERT INTO servers (hoster, server_name, payment_day, payment_type, monthly_cost, currency)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO servers (hoster, server_name, payment_day, payment_type, monthly_cost, currency, count)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING *
         """,
-        hoster, server_name, payment_day, payment_type, monthly_cost, currency,
+        hoster, server_name, payment_day, payment_type, monthly_cost, currency, count,
     )
     return dict(row)
 
@@ -39,6 +40,29 @@ async def list_servers(active_only: bool = True) -> list[dict]:
         )
     else:
         rows = await pool.fetch("SELECT * FROM servers ORDER BY hoster, server_name")
+    return [dict(r) for r in rows]
+
+
+async def list_hosters() -> list[dict]:
+    pool = get_pool()
+    rows = await pool.fetch(
+        """
+        SELECT hoster, COUNT(*) AS count
+        FROM servers
+        WHERE is_active = TRUE
+        GROUP BY hoster
+        ORDER BY hoster
+        """
+    )
+    return [{"hoster": r["hoster"], "count": r["count"]} for r in rows]
+
+
+async def list_servers_by_hoster(hoster: str) -> list[dict]:
+    pool = get_pool()
+    rows = await pool.fetch(
+        "SELECT * FROM servers WHERE hoster = $1 AND is_active = TRUE ORDER BY server_name",
+        hoster,
+    )
     return [dict(r) for r in rows]
 
 
@@ -115,7 +139,7 @@ async def get_upcoming_payments(days_ahead: int = 14) -> list[dict]:
     pool = get_pool()
     rows = await pool.fetch(
         """
-        SELECT p.*, s.hoster, s.server_name, s.monthly_cost, s.currency, s.payment_type
+        SELECT p.*, s.hoster, s.server_name, s.monthly_cost, s.currency, s.payment_type, s.count
         FROM payments p
         JOIN servers s ON s.id = p.server_id
         WHERE p.due_date BETWEEN CURRENT_DATE AND CURRENT_DATE + $1::integer
@@ -132,7 +156,7 @@ async def get_pending_notifications() -> list[dict]:
     pool = get_pool()
     rows = await pool.fetch(
         """
-        SELECT p.*, s.hoster, s.server_name, s.monthly_cost, s.currency, s.payment_type
+        SELECT p.*, s.hoster, s.server_name, s.monthly_cost, s.currency, s.payment_type, s.count
         FROM payments p
         JOIN servers s ON s.id = p.server_id
         WHERE p.status = 'pending'

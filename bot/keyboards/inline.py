@@ -1,15 +1,44 @@
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 
-def server_list_kb(servers: list[dict]) -> InlineKeyboardMarkup:
+def hoster_list_kb(hosters: list[dict]) -> InlineKeyboardMarkup:
+    """Top-level list: one button per hoster with server count."""
+    buttons = []
+    for h in hosters:
+        n = h["count"]
+        label = f"{h['hoster']}  ({n} серв.)"
+        buttons.append([
+            InlineKeyboardButton(text=label, callback_data=f"hstr:{h['hoster']}"),
+        ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def hoster_servers_kb(servers: list[dict]) -> InlineKeyboardMarkup:
+    """Servers inside a hoster + back button."""
     buttons = []
     for s in servers:
+        label = s["server_name"]
+        if s.get("count", 1) > 1:
+            label += f" ×{s['count']}"
         buttons.append([
-            InlineKeyboardButton(
-                text=f"{s['hoster']} — {s['server_name']}",
-                callback_data=f"srv_info:{s['id']}",
-            )
+            InlineKeyboardButton(text=label, callback_data=f"srv_info:{s['id']}"),
         ])
+    buttons.append([
+        InlineKeyboardButton(text="« Назад", callback_data="srv_back_list"),
+    ])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def hoster_select_kb(hosters: list[str]) -> InlineKeyboardMarkup:
+    """Used in /add flow: pick existing hoster or create new."""
+    buttons = []
+    for h in hosters:
+        buttons.append([
+            InlineKeyboardButton(text=h, callback_data=f"addh:{h}"),
+        ])
+    buttons.append([
+        InlineKeyboardButton(text="+ Новый хостер", callback_data="addh:__new__"),
+    ])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -19,7 +48,7 @@ def server_actions_kb(server_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="Удалить", callback_data=f"srv_del:{server_id}"),
         ],
         [
-            InlineKeyboardButton(text="« Назад", callback_data="srv_back"),
+            InlineKeyboardButton(text="« Назад", callback_data=f"srv_back_hstr:{server_id}"),
         ],
     ])
 
@@ -28,7 +57,7 @@ def confirm_delete_kb(server_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="Да, удалить", callback_data=f"srv_del_yes:{server_id}"),
-            InlineKeyboardButton(text="Отмена", callback_data="srv_back"),
+            InlineKeyboardButton(text="Отмена", callback_data=f"srv_back_hstr:{server_id}"),
         ],
     ])
 

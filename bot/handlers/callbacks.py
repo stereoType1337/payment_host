@@ -2,18 +2,48 @@ from aiogram import F, Router
 from aiogram.types import CallbackQuery
 
 from bot import models
-from bot.keyboards.inline import confirm_delete_kb, server_actions_kb, server_list_kb
+from bot.keyboards.inline import (
+    confirm_delete_kb,
+    hoster_list_kb,
+    hoster_servers_kb,
+    server_actions_kb,
+)
 
 router = Router()
 
 CURRENCY_SYMBOLS = {"RUB": "₽", "USD": "$", "EUR": "€"}
 
 
-def _format_cost(amount, currency: str) -> str:
+def _format_cost(amount, currency: str, count: int = 1) -> str:
     symbol = CURRENCY_SYMBOLS.get(currency, currency)
     if currency in ("USD", "EUR"):
-        return f"{symbol}{amount}"
-    return f"{amount} {symbol}"
+        unit = f"{symbol}{amount}"
+    else:
+        unit = f"{amount} {symbol}"
+    if count > 1:
+        total = amount * count
+        if currency in ("USD", "EUR"):
+            total_str = f"{symbol}{total}"
+        else:
+            total_str = f"{total} {symbol}"
+        return f"{unit} ×{count} = {total_str}"
+    return unit
+
+
+# ── Hoster list ───────────────────────────────────────────
+
+@router.callback_query(F.data.startswith("hstr:"))
+async def cb_hoster_servers(callback: CallbackQuery):
+    hoster = callback.data[5:]  # everything after "hstr:"
+    servers = await models.list_servers_by_hoster(hoster)
+    if not servers:
+        await callback.answer("Нет серверов у этого хостера", show_alert=True)
+        return
+    await callback.message.edit_text(
+        f"Серверы хостера {hoster}:",
+        reply_markup=hoster_servers_kb(servers),
+    )
+    await callback.answer()
 
 
 # ── Server info ──────────────────────────────────────────
@@ -28,14 +58,17 @@ async def cb_server_info(callback: CallbackQuery):
 
     cost_str = ""
     if server["monthly_cost"] is not None:
-        cost_str = f"Стоимость: {_format_cost(server['monthly_cost'], server['currency'])}\n"
+        cost_str = f"Стоимость: {_format_cost(server['monthly_cost'], server['currency'], server.get('count', 1))}\n"
 
+    count = server.get("count", 1)
+    count_str = f"Кол-во: {count}\n" if count > 1 else ""
     ptype_label = "Инвойс" if server["payment_type"] == "invoice" else "Автосписание"
     await callback.message.edit_text(
         f"Хостер: {server['hoster']}\n"
         f"Сервер: {server['server_name']}\n"
         f"День оплаты: {server['payment_day']}\n"
         f"Тип: {ptype_label}\n"
+        f"{count_str}"
         f"{cost_str}",
         reply_markup=server_actions_kb(server_id),
     )
@@ -57,25 +90,62 @@ async def cb_server_delete_confirm(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("srv_del_yes:"))
 async def cb_server_delete(callback: CallbackQuery):
     server_id = int(callback.data.split(":")[1])
+    server = await models.get_server(server_id)
+    hoster = server["hoster"] if server else None
+
     deleted = await models.delete_server(server_id)
     if deleted:
         await callback.answer("Сервер удалён", show_alert=True)
     else:
         await callback.answer("Сервер не найден", show_alert=True)
-    servers = await models.list_servers()
-    if servers:
-        await callback.message.edit_text("Ваши серверы:", reply_markup=server_list_kb(servers))
+
+    # Try to return to the hoster's server list; fall back to hosters list
+    if hoster:
+        servers = await models.list_servers_by_hoster(hoster)
+        if servers:
+            await callback.message.edit_text(
+                f"Серверы хостера {hoster}:",
+                reply_markup=hoster_servers_kb(servers),
+            )
+            return
+
+    hosters = await models.list_hosters()
+    if hosters:
+        await callback.message.edit_text("Ваши хостеры:", reply_markup=hoster_list_kb(hosters))
     else:
         await callback.message.edit_text("Список серверов пуст.")
 
 
-# ── Back to list ─────────────────────────────────────────
+# ── Navigation ────────────────────────────────────────────
 
-@router.callback_query(F.data == "srv_back")
-async def cb_back(callback: CallbackQuery):
-    servers = await models.list_servers()
-    if servers:
-        await callback.message.edit_text("Ваши серверы:", reply_markup=server_list_kb(servers))
+@router.callback_query(F.data == "srv_back_list")
+async def cb_back_list(callback: CallbackQuery):
+    hosters = await models.list_hosters()
+    if hosters:
+        await callback.message.edit_text("Ваши хостеры:", reply_markup=hoster_list_kb(hosters))
+    else:
+        await callback.message.edit_text("Список серверов пуст.")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("srv_back_hstr:"))
+async def cb_back_hoster(callback: CallbackQuery):
+    server_id = int(callback.data.split(":")[1])
+    server = await models.get_server(server_id)
+    if server:
+        hoster = server["hoster"]
+        servers = await models.list_servers_by_hoster(hoster)
+        if servers:
+            await callback.message.edit_text(
+                f"Серверы хостера {hoster}:",
+                reply_markup=hoster_servers_kb(servers),
+            )
+            await callback.answer()
+            return
+    # Fall back to hosters list
+    hosters = await models.list_hosters()
+    if hosters:
+        await callback.message.edit_text("Ваши хостеры:", reply_markup=hoster_list_kb(hosters))
     else:
         await callback.message.edit_text("Список серверов пуст.")
     await callback.answer()

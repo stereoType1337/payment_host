@@ -19,6 +19,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./migrations/002_add_count.sql:/docker-entrypoint-initdb.d/002_add_count.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-botuser} -d ${POSTGRES_DB:-server_payments}"]
       interval: 5s
